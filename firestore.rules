@@ -1,0 +1,131 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: users
+    // Document ID: {uid}
+    // Fields:
+    //   - uid: string (required) - User ID
+    //   - displayName: string (optional) - User's name
+    //   - email: string (required) - User's email
+    //   - currency: string (optional) - Preferred currency
+    //   - monthlyIncome: number (optional) - Estimated monthly income
+    //   - createdAt: string (optional) - Creation timestamp
+    //
+    // Collection: transactions
+    // Document ID: {transactionId}
+    // Fields:
+    //   - uid: string (required) - Owner ID
+    //   - amount: number (required) - Transaction amount
+    //   - type: string (required, enum: ['income', 'expense']) - Type
+    //   - category: string (required) - Category
+    //   - description: string (optional) - Description
+    //   - date: string (required) - Date of transaction
+    //   - createdAt: string (optional) - Creation timestamp
+    //
+    // Collection: budgets
+    // Document ID: {budgetId}
+    // Fields:
+    //   - uid: string (required) - Owner ID
+    //   - category: string (required) - Category
+    //   - limit: number (required) - Spending limit
+    //   - month: string (required) - Month (YYYY-MM)
+    //
+    // Collection: goals
+    // Document ID: {goalId}
+    // Fields:
+    //   - uid: string (required) - Owner ID
+    //   - title: string (required) - Goal name
+    //   - targetAmount: number (required) - Target amount
+    //   - currentAmount: number (optional) - Saved amount
+    //   - deadline: string (optional) - Target date
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isDocOwner() {
+      return isAuthenticated() && request.auth.uid == resource.data.uid;
+    }
+
+    function requestOwnsDoc() {
+      return isAuthenticated() && request.auth.uid == request.resource.data.uid;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+          (request.auth.token.email == "keshavforever4@gmail.com" && request.auth.token.email_verified == true));
+    }
+
+    function isValidEmail(email) {
+      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+
+    function isValidDateString(dateStr) {
+      return dateStr is string && dateStr.matches("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}.*Z?$");
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+    function isValidUser(data) {
+      return data.uid is string && data.email is string && isValidEmail(data.email);
+    }
+
+    function isValidTransaction(data) {
+      return data.uid is string && data.amount is number && data.type in ['income', 'expense'] && data.category is string && data.date is string;
+    }
+
+    function isValidBudget(data) {
+      return data.uid is string && data.category is string && data.limit is number && data.month is string;
+    }
+
+    function isValidGoal(data) {
+      return data.uid is string && data.title is string && data.targetAmount is number;
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /users/{uid} {
+      allow read: if isOwner(uid) || isAdmin();
+      allow create: if isOwner(uid) && isValidUser(request.resource.data);
+      allow update: if isOwner(uid) && isValidUser(request.resource.data);
+    }
+
+    match /transactions/{transactionId} {
+      allow read: if isDocOwner() || isAdmin();
+      allow create: if requestOwnsDoc() && isValidTransaction(request.resource.data);
+      allow update: if isDocOwner() && requestOwnsDoc() && isValidTransaction(request.resource.data);
+      allow delete: if isDocOwner() || isAdmin();
+    }
+
+    match /budgets/{budgetId} {
+      allow read: if isDocOwner() || isAdmin();
+      allow create: if requestOwnsDoc() && isValidBudget(request.resource.data);
+      allow update: if isDocOwner() && requestOwnsDoc() && isValidBudget(request.resource.data);
+      allow delete: if isDocOwner() || isAdmin();
+    }
+
+    match /goals/{goalId} {
+      allow read: if isDocOwner() || isAdmin();
+      allow create: if requestOwnsDoc() && isValidGoal(request.resource.data);
+      allow update: if isDocOwner() && requestOwnsDoc() && isValidGoal(request.resource.data);
+      allow delete: if isDocOwner() || isAdmin();
+    }
+  }
+}
